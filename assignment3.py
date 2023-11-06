@@ -16,6 +16,43 @@ forwarding_address = os.environ.get("FORWARDING_ADDRESS")
 if forwarding_address is None:
     print("No forwarding address specified, running in main mode")
     kv_store = {} # in-memory key-value store using dictionary
+    sa_store = {} # in-memory store for storing the set of replicas among which the store is replicated
+    
+    # View operations - “view” refers to the current set of replicas among which the store is replicated.
+    # A replica supports view operations to describe the current view, add a new replica to the view, or 
+    # delete an existing replica from the view.
+    
+    @app.route('/view', methods=['GET', 'PUT', 'DELETE'])
+    def handle_view():
+        if request.method == 'GET':
+            # Return the current view of the store.
+            # – Response code is 200 (Ok).
+            # – Response body is JSON {"view": ["<IP:PORT>", "<IP:PORT>", ...]}.
+            return jsonify({"view": list(sa_store.keys())}), 200
+        
+        if request.method == 'PUT':
+            # Add a new replica <socket-address> to the view.
+            # – Response code is 200 (Ok).
+            # – Response body is JSON {"result": "added"}.
+            data = request.get_json()
+            replica = data['socket-address']
+            if replica in sa_store:
+                return jsonify({"result": "already present"}), 200
+            else:
+                sa_store[replica] = True
+                return jsonify({"result": "added"}), 201
+            
+        if request.method == 'DELETE':
+            # Delete an existing replica <socket-address> from the view.
+            # – Response code is 200 (Ok).
+            # – Response body is JSON {"result": "deleted"}.
+            data = request.get_json()
+            replica = data['socket-address']
+            if replica in sa_store:
+                del sa_store[replica]
+                return jsonify({"result": "deleted"}), 200
+            else:
+                return jsonify({"result": "View has no such replica"}), 404
 
     # check the request type and process with HTTP status code and JSON body
     @app.route('/kvs/<key>', methods=['PUT', 'GET', 'DELETE'])
