@@ -19,6 +19,17 @@ VIEW = os.environ.get("VIEW")
 print("No forwarding address specified, running in main mode")
 kv_store = {} # in-memory key-value store using dictionary
 sa_store = {} # in-memory store for storing the set of replicas among which the store is replicated
+
+# print("Broadcasting self to other replicas")
+views = VIEW.split(",")
+for view in views:
+    if view != SOCKET_ADDRESS:
+        # print(f"Sending PUT request to {view}")
+        try:
+            requests.put(f"http://{view}/view", json={"socket-address": SOCKET_ADDRESS})
+        except requests.exceptions.ConnectionError:
+            # print("Connection error")
+            pass 
     
 # View operations - “view” refers to the current set of replicas among which the store is replicated.
 # A replica supports view operations to describe the current view, add a new replica to the view, or 
@@ -125,18 +136,6 @@ def handle_key(key):
         # – Response body is JSON {"error": "Key does not exist"}.
         else:
             return jsonify({"error": "Key does not exist"}), 404
-
-def broadcast_self():
-    # print("Broadcasting self to other replicas")
-    views = VIEW.split(",")
-    for view in views:
-        if view != SOCKET_ADDRESS:
-            # print(f"Sending PUT request to {view}")
-            try:
-                requests.put(f"http://{view}/view", json={"socket-address": SOCKET_ADDRESS})
-            except requests.exceptions.ConnectionError:
-                # print("Connection error")
-                pass 
     
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=8090)
