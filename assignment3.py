@@ -124,7 +124,19 @@ def handle_key(key):
         # – Response code is 404 (Not Found).
         # – Response body is JSON {"error": "Key does not exist"}.
         else:
-            return jsonify({"error": "Key does not exist"}), 404    
+            return jsonify({"error": "Key does not exist"}), 404
+
+def broadcast_self():
+    # print("Broadcasting self to other replicas")
+    views = VIEW.split(",")
+    for view in views:
+        if view != SOCKET_ADDRESS:
+            # print(f"Sending PUT request to {view}")
+            try:
+                requests.put(f"http://{view}/view", json={"socket-address": SOCKET_ADDRESS})
+            except requests.exceptions.ConnectionError:
+                # print("Connection error")
+                pass 
     
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=8090)
