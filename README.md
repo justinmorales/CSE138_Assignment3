@@ -18,3 +18,8 @@ Team Contributions
 * Jun Hayashida -
 * Justin Morales - 
 * Tyler Fong - 
+
+Mechanism Description
+==================
+Describe how your system tracks causal dependencies, and how your
+system detects when a replica goes down.
