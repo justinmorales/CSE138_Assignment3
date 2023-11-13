@@ -63,6 +63,16 @@ def handle_view():
         replica = data['socket-address']
         if replica in sa_store:
             del sa_store[replica]
+            #broadcasts DELETE-view requests to other replicas
+            for view in views:
+                if view != SOCKET_ADDRESS:
+                    # print(f"Sending DELETE request to {view}")
+                    try:
+                        requests.delete(f"http://{view}/view", json={"socket-address": replica})
+                    except requests.exceptions.ConnectionError:
+                        # print("Connection error")
+                        pass 
+
             return jsonify({"result": "deleted"}), 200
         else:
             return jsonify({"result": "View has no such replica"}), 404
