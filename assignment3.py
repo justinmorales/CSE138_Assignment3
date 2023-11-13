@@ -19,6 +19,7 @@ VIEW = os.environ.get("VIEW")
 print("No forwarding address specified, running in main mode")
 kv_store = {} # in-memory key-value store using dictionary
 sa_store = {} # in-memory store for storing the set of replicas among which the store is replicated
+metadata = {} # in-memory store for storing the causal metadata
 
 # print("Broadcasting self to other replicas")
 views = VIEW.split(",")
