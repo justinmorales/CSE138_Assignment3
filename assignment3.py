@@ -111,15 +111,32 @@ def handle_key(key):
         # if the <key> already exists in the store, then update the mapping to point to the new <value>.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "replaced", "causal-metadata": <V'>}.
-        #       *The <V'> here and in the 201 response indicates a causal dependency on <V> and this PUT.
+        #    *The <V'> here and in the 201 response indicates a causal dependency on <V> and this PUT.
         if key in kv_store:
             kv_store[key] = value
+            for replica in sa_store:
+                if replica != SOCKET_ADDRESS:
+                    try:
+                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value})
+                    except requests.exceptions.ConnectionError:
+                        # deletes the replica from the store if it is not reachable
+                        sa_store.pop(replica)
+                        pass
+                
             return jsonify({"result": "replaced"}), 200
         # Otherwise, If the key <key> does not exist in the store, add a new mapping from <key> to <value> into the store.
         # – Response code is 201 (Created).
         # – Response body is JSON {"result": "created", "causal-metadata": <V'>}
         else:
             kv_store[key] = value
+            for replica in sa_store:
+                if replica != SOCKET_ADDRESS:
+                    try:
+                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value})
+                    except requests.exceptions.ConnectionError:
+                        # deletes the replica from the store if it is not reachable
+                        sa_store.pop(replica)
+                        pass
             return jsonify({"result": "created"}), 201
 
     # GET HTTP method
@@ -141,7 +158,7 @@ def handle_key(key):
         # If the key <key> exists in the store, then return the mapped value in the response.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "found", "value": "<value>", "causal-metadata": <V'>}
-        #       ∗ The <V'> indicates a causal dependency on the PUT of <key>,<value>.
+        #    ∗ The <V'> indicates a causal dependency on the PUT of <key>,<value>.
         if key in kv_store:
             return jsonify({"result": "found", "value": kv_store[key]}), 200
         # Otherwise, If the key does not exist in the store, then return an error.
@@ -171,8 +188,17 @@ def handle_key(key):
         # If the key <key> exists in the store, then remove it.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "deleted", "causal-metadata": <V'>}.
+        # ∗ The <V'> indicates a causal dependency on <V> and this DELETE
         if key in kv_store:
             del kv_store[key]
+            for replica in sa_store:
+                if replica != SOCKET_ADDRESS:
+                    try:
+                        requests.delete(f"http://{replica}/kvs/{key}")
+                    except requests.exceptions.ConnectionError:
+                        # deletes the replica from the store if it is not reachable
+                        sa_store.pop(replica)
+                        pass
             return jsonify({"result": "deleted"}), 200
         # If the key <key> does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
