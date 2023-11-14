@@ -25,6 +25,20 @@ sa_store = {} # in-memory store for storing the set of replicas among which the 
 # vector_clock[2] represents replica at 10.10.0.4:8090
 vector_clock = [0,0,0]
 
+# Create a function to increment vector clock
+def inc_vector_clock():
+    if SOCKET_ADDRESS == "10.10.0.2:8090":
+        vector_clock[0] += 1
+    elif SOCKET_ADDRESS == "10.10.0.3:8090":
+        vector_clock[1] += 1
+    elif SOCKET_ADDRESS == "10.10.0.4:8090":
+        vector_clock[2] += 1
+        
+def update_vector_clock(v):
+        vector_clock[0] = max(vector_clock[0], v[0])
+        vector_clock[1] = max(vector_clock[1], v[1])
+        vector_clock[2] = max(vector_clock[2], v[2])
+
 # print("Broadcasting self to other replicas")
 views = VIEW.split(",")
 for view in views:
@@ -67,12 +81,7 @@ def handle_view():
             # send entire kv_store to the new replica
             for key in kv_store:
                 try:
-                    if SOCKET_ADDRESS == "10.10.0.2:8090":
-                        vector_clock[0] += 1
-                    elif SOCKET_ADDRESS == "10.10.0.3:8090":
-                        vector_clock[1] += 1
-                    elif SOCKET_ADDRESS == "10.10.0.4:8090":
-                        vector_clock[2] += 1
+                    inc_vector_clock()
                     requests.put(f"http://{replica}/kvs/{key}", json={"value": kv_store[key],"causal-metadata": vector_clock})
                 except requests.exceptions.ConnectionError:
                     # deletes the replica from the store if it is not reachable
@@ -122,12 +131,7 @@ def handle_key(key):
     # It is dictionary operations which add a new key.
     if request.method == 'PUT':
 
-        if SOCKET_ADDRESS == "10.10.0.2:8090":
-            vector_clock[0] += 1
-        elif SOCKET_ADDRESS == "10.10.0.3:8090":
-            vector_clock[1] += 1
-        elif SOCKET_ADDRESS == "10.10.0.4:8090":
-            vector_clock[2] += 1
+        inc_vector_clock()
 
         try:
             data = request.get_json()
@@ -140,7 +144,7 @@ def handle_key(key):
             return jsonify({"error": "PUT request does not specify a value"}), 400
         
         # Write code to handle causal metadata here
-        #
+        update_vector_clock(data['causal-metadata'])
         #
         #
         #
@@ -157,12 +161,7 @@ def handle_key(key):
             for replica in sa_store:
                 if replica != SOCKET_ADDRESS:
                     try:
-                        if SOCKET_ADDRESS == "10.10.0.2:8090":
-                            vector_clock[0] += 1
-                        elif SOCKET_ADDRESS == "10.10.0.3:8090":
-                            vector_clock[1] += 1
-                        elif SOCKET_ADDRESS == "10.10.0.4:8090":
-                            vector_clock[2] += 1
+                        inc_vector_clock()
                         requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock})
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
@@ -178,12 +177,7 @@ def handle_key(key):
             for replica in sa_store:
                 if replica != SOCKET_ADDRESS:
                     try:
-                        if SOCKET_ADDRESS == "10.10.0.2:8090":
-                            vector_clock[0] += 1
-                        elif SOCKET_ADDRESS == "10.10.0.3:8090":
-                            vector_clock[1] += 1
-                        elif SOCKET_ADDRESS == "10.10.0.4:8090":
-                            vector_clock[2] += 1
+                        inc_vector_clock()
                         requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock})
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
@@ -199,7 +193,7 @@ def handle_key(key):
         # – The <V> is null when the client does not know of prior writes.
         
         # Write code to handle causal metadata here
-        #
+        update_vector_clock(data['causal-metadata'])
         #
         #
         #
@@ -207,12 +201,7 @@ def handle_key(key):
         
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
         
-        if SOCKET_ADDRESS == "10.10.0.2:8090":
-            vector_clock[0] += 1
-        elif SOCKET_ADDRESS == "10.10.0.3:8090":
-            vector_clock[1] += 1
-        elif SOCKET_ADDRESS == "10.10.0.4:8090":
-            vector_clock[2] += 1
+        inc_vector_clock()
         
         # If the key <key> exists in the store, then return the mapped value in the response.
         # – Response code is 200 (Ok).
@@ -236,7 +225,7 @@ def handle_key(key):
         # happen. Think about why.
         
         # Write code to handle causal metadata here
-        #
+        update_vector_clock(data['causal-metadata'])
         #
         #
         #
@@ -244,12 +233,7 @@ def handle_key(key):
         
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
         
-        if SOCKET_ADDRESS == "10.10.0.2:8090":
-            vector_clock[0] += 1
-        elif SOCKET_ADDRESS == "10.10.0.3:8090":
-            vector_clock[1] += 1
-        elif SOCKET_ADDRESS == "10.10.0.4:8090":
-            vector_clock[2] += 1
+        inc_vector_clock()
         
         # If the key <key> exists in the store, then remove it.
         # – Response code is 200 (Ok).
@@ -260,12 +244,7 @@ def handle_key(key):
             for replica in sa_store:
                 if replica != SOCKET_ADDRESS:
                     try:
-                        if SOCKET_ADDRESS == "10.10.0.2:8090":
-                            vector_clock[0] += 1
-                        elif SOCKET_ADDRESS == "10.10.0.3:8090":
-                            vector_clock[1] += 1
-                        elif SOCKET_ADDRESS == "10.10.0.4:8090":
-                            vector_clock[2] += 1
+                        inc_vector_clock()
                         requests.delete(f"http://{replica}/kvs/{key}")
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
