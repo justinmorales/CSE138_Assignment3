@@ -12,6 +12,7 @@ from flask import Flask, request, Response, jsonify
 
 app = Flask(__name__) 
 #forwarding_address = os.environ.get("FORWARDING_ADDRESS")
+# The socket addesses are as follows: 10.10.0.2:8090, 10.10.0.3:8090, and 10.10.0.4:8090
 SOCKET_ADDRESS = os.environ.get("SOCKET_ADDRESS")
 VIEW = os.environ.get("VIEW")
 
@@ -19,7 +20,10 @@ VIEW = os.environ.get("VIEW")
 print("No forwarding address specified, running in main mode")
 kv_store = {} # in-memory key-value store using dictionary
 sa_store = {} # in-memory store for storing the set of replicas among which the store is replicated
-metadata = {} # in-memory store for storing the causal metadata
+# vector_clock[0] represents replica at 10.10.0.2:8090
+# vector_clock[1] represents replica at 10.10.0.3:8090
+# vector_clock[2] represents replica at 10.10.0.4:8090
+vector_clock = [0,0,0]
 
 # print("Broadcasting self to other replicas")
 views = VIEW.split(",")
@@ -28,12 +32,15 @@ for view in views:
         # print(f"Sending PUT request to {view}")
         try:
             requests.put(f"http://{view}/view", json={"socket-address": SOCKET_ADDRESS})
-            sa_store[view] = True
         except requests.exceptions.ConnectionError:
             # print("Connection error")
             pass
+        else:
+            # print("PUT request successful")
+            sa_store[view] = True
     if view == SOCKET_ADDRESS:
         sa_store[view] = True
+        pass
     
 # View operations - “view” refers to the current set of replicas among which the store is replicated.
 # A replica supports view operations to describe the current view, add a new replica to the view, or 
@@ -57,6 +64,20 @@ def handle_view():
             return jsonify({"result": "already present"}), 200
         else:
             sa_store[replica] = True
+            # send entire kv_store to the new replica
+            for key in kv_store:
+                try:
+                    requests.put(f"http://{replica}/kvs/{key}", json={"value": kv_store[key]})
+                    if SOCKET_ADDRESS == "10.10.0.2:8090":
+                        vector_clock[0] += 1
+                    elif SOCKET_ADDRESS == "10.10.0.3:8090":
+                        vector_clock[1] += 1
+                    elif SOCKET_ADDRESS == "10.10.0.4:8090":
+                        vector_clock[2] += 1
+                except requests.exceptions.ConnectionError:
+                    # deletes the replica from the store if it is not reachable
+                    sa_store.pop(replica)
+                    pass
             return jsonify({"result": "added"}), 201
             
     if request.method == 'DELETE':
@@ -103,6 +124,12 @@ def handle_key(key):
         try:
             data = request.get_json()
             value = data['value']
+            if SOCKET_ADDRESS == "10.10.0.2:8090":
+                vector_clock[0] += 1
+            elif SOCKET_ADDRESS == "10.10.0.3:8090":
+                vector_clock[1] += 1
+            elif SOCKET_ADDRESS == "10.10.0.4:8090":
+                vector_clock[2] += 1
         # If the request body is not a JSON object with key "value", then return an error.
         # – Response code is 400 (Bad Request).
         # – Response body is JSON {"error": "PUT request does not specify a value"}
@@ -129,6 +156,12 @@ def handle_key(key):
                 if replica != SOCKET_ADDRESS:
                     try:
                         requests.put(f"http://{replica}/kvs/{key}", json={"value": value})
+                        if SOCKET_ADDRESS == "10.10.0.2:8090":
+                            vector_clock[0] += 1
+                        elif SOCKET_ADDRESS == "10.10.0.3:8090":
+                            vector_clock[1] += 1
+                        elif SOCKET_ADDRESS == "10.10.0.4:8090":
+                            vector_clock[2] += 1
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
                         sa_store.pop(replica)
@@ -144,6 +177,12 @@ def handle_key(key):
                 if replica != SOCKET_ADDRESS:
                     try:
                         requests.put(f"http://{replica}/kvs/{key}", json={"value": value})
+                        if SOCKET_ADDRESS == "10.10.0.2:8090":
+                            vector_clock[0] += 1
+                        elif SOCKET_ADDRESS == "10.10.0.3:8090":
+                            vector_clock[1] += 1
+                        elif SOCKET_ADDRESS == "10.10.0.4:8090":
+                            vector_clock[2] += 1
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
                         sa_store.pop(replica)
@@ -165,6 +204,13 @@ def handle_key(key):
         #
         
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
+        
+        if SOCKET_ADDRESS == "10.10.0.2:8090":
+            vector_clock[0] += 1
+        elif SOCKET_ADDRESS == "10.10.0.3:8090":
+            vector_clock[1] += 1
+        elif SOCKET_ADDRESS == "10.10.0.4:8090":
+            vector_clock[2] += 1
         
         # If the key <key> exists in the store, then return the mapped value in the response.
         # – Response code is 200 (Ok).
@@ -196,6 +242,13 @@ def handle_key(key):
         
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
         
+        if SOCKET_ADDRESS == "10.10.0.2:8090":
+            vector_clock[0] += 1
+        elif SOCKET_ADDRESS == "10.10.0.3:8090":
+            vector_clock[1] += 1
+        elif SOCKET_ADDRESS == "10.10.0.4:8090":
+            vector_clock[2] += 1
+        
         # If the key <key> exists in the store, then remove it.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "deleted", "causal-metadata": <V'>}.
@@ -206,6 +259,12 @@ def handle_key(key):
                 if replica != SOCKET_ADDRESS:
                     try:
                         requests.delete(f"http://{replica}/kvs/{key}")
+                        if SOCKET_ADDRESS == "10.10.0.2:8090":
+                            vector_clock[0] += 1
+                        elif SOCKET_ADDRESS == "10.10.0.3:8090":
+                            vector_clock[1] += 1
+                        elif SOCKET_ADDRESS == "10.10.0.4:8090":
+                            vector_clock[2] += 1
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
                         sa_store.pop(replica)
