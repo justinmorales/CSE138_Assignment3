@@ -67,13 +67,13 @@ def handle_view():
             # send entire kv_store to the new replica
             for key in kv_store:
                 try:
-                    requests.put(f"http://{replica}/kvs/{key}", json={"value": kv_store[key]})
                     if SOCKET_ADDRESS == "10.10.0.2:8090":
                         vector_clock[0] += 1
                     elif SOCKET_ADDRESS == "10.10.0.3:8090":
                         vector_clock[1] += 1
                     elif SOCKET_ADDRESS == "10.10.0.4:8090":
                         vector_clock[2] += 1
+                    requests.put(f"http://{replica}/kvs/{key}", json={"value": kv_store[key],"causal-metadata": vector_clock})
                 except requests.exceptions.ConnectionError:
                     # deletes the replica from the store if it is not reachable
                     sa_store.pop(replica)
@@ -121,15 +121,17 @@ def handle_key(key):
     # This endpoint is used to create or update key-value mappings in the store.
     # It is dictionary operations which add a new key.
     if request.method == 'PUT':
+
+        if SOCKET_ADDRESS == "10.10.0.2:8090":
+            vector_clock[0] += 1
+        elif SOCKET_ADDRESS == "10.10.0.3:8090":
+            vector_clock[1] += 1
+        elif SOCKET_ADDRESS == "10.10.0.4:8090":
+            vector_clock[2] += 1
+
         try:
             data = request.get_json()
             value = data['value']
-            if SOCKET_ADDRESS == "10.10.0.2:8090":
-                vector_clock[0] += 1
-            elif SOCKET_ADDRESS == "10.10.0.3:8090":
-                vector_clock[1] += 1
-            elif SOCKET_ADDRESS == "10.10.0.4:8090":
-                vector_clock[2] += 1
         # If the request body is not a JSON object with key "value", then return an error.
         # – Response code is 400 (Bad Request).
         # – Response body is JSON {"error": "PUT request does not specify a value"}
@@ -155,19 +157,19 @@ def handle_key(key):
             for replica in sa_store:
                 if replica != SOCKET_ADDRESS:
                     try:
-                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value})
                         if SOCKET_ADDRESS == "10.10.0.2:8090":
                             vector_clock[0] += 1
                         elif SOCKET_ADDRESS == "10.10.0.3:8090":
                             vector_clock[1] += 1
                         elif SOCKET_ADDRESS == "10.10.0.4:8090":
                             vector_clock[2] += 1
+                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock})
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
                         sa_store.pop(replica)
                         pass
                 
-            return jsonify({"result": "replaced"}), 200
+            return jsonify({"result": "replaced", "causal-metadata": vector_clock}), 200
         # Otherwise, If the key <key> does not exist in the store, add a new mapping from <key> to <value> into the store.
         # – Response code is 201 (Created).
         # – Response body is JSON {"result": "created", "causal-metadata": <V'>}
@@ -176,18 +178,18 @@ def handle_key(key):
             for replica in sa_store:
                 if replica != SOCKET_ADDRESS:
                     try:
-                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value})
                         if SOCKET_ADDRESS == "10.10.0.2:8090":
                             vector_clock[0] += 1
                         elif SOCKET_ADDRESS == "10.10.0.3:8090":
                             vector_clock[1] += 1
                         elif SOCKET_ADDRESS == "10.10.0.4:8090":
                             vector_clock[2] += 1
+                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock})
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
                         sa_store.pop(replica)
                         pass
-            return jsonify({"result": "created"}), 201
+            return jsonify({"result": "created", "causal-metadata": vector_clock}), 201
 
     # GET HTTP method
     # This endpoint is used to read values from existing key-value mappings in the store. 
@@ -217,7 +219,7 @@ def handle_key(key):
         # – Response body is JSON {"result": "found", "value": "<value>", "causal-metadata": <V'>}
         #    ∗ The <V'> indicates a causal dependency on the PUT of <key>,<value>.
         if key in kv_store:
-            return jsonify({"result": "found", "value": kv_store[key]}), 200
+            return jsonify({"result": "found", "value": kv_store[key], "causal-metadata": vector_clock}), 200
         # Otherwise, If the key does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
         # – Response body is JSON {"error": "Key does not exist"}.
@@ -258,18 +260,18 @@ def handle_key(key):
             for replica in sa_store:
                 if replica != SOCKET_ADDRESS:
                     try:
-                        requests.delete(f"http://{replica}/kvs/{key}")
                         if SOCKET_ADDRESS == "10.10.0.2:8090":
                             vector_clock[0] += 1
                         elif SOCKET_ADDRESS == "10.10.0.3:8090":
                             vector_clock[1] += 1
                         elif SOCKET_ADDRESS == "10.10.0.4:8090":
                             vector_clock[2] += 1
+                        requests.delete(f"http://{replica}/kvs/{key}")
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
                         sa_store.pop(replica)
                         pass
-            return jsonify({"result": "deleted"}), 200
+            return jsonify({"result": "deleted", "causal-metadata": vector_clock}), 200
         # If the key <key> does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
         # – Response body is JSON {"error": "Key does not exist"}.
