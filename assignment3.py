@@ -1,20 +1,21 @@
 import os
 import requests
+import time
 from flask import Flask, request, Response, jsonify
 
 # Part1
-# Create a Key-value Store that will support adding a new key-value pair to the store,
-# retrieving and updating the value of an existing key, and deleting an existing key from the store.
+# Create a Key-value Store that will support 
+# 1) adding a new key-value pair to the store,
+# 2) retrieving and updating the value of an existing key
+# 3) deleting an existing key from the store.
 
 # The store does not need to persist the key value dta, i.e., it can store data in memory only.
-# If the store goes down and then gets started again, it does not need to contain the data
-# it had before the crash
+# If the store goes down and then gets started again, it does not need to contain the data it had before the crash
 
 app = Flask(__name__)
 SOCKET_ADDRESS = os.environ.get("SOCKET_ADDRESS")
 VIEW = os.environ.get("VIEW")
 
-# print("No forwarding address specified, running in main mode")
 kv_store = {} # in-memory key-value store using dictionary
 sa_store = {} # in-memory store for storing the set of replicas among which the store is replicated
 vector_clock = [0,0,0]
@@ -35,36 +36,57 @@ def update_vector_clock(v):
         vector_clock[2] = max(vector_clock[2], v[2])
 
 # Create a function to send http request based on method
-def send_http_request(url, method='get', data=None):
+def send_http_request(url, method='GET', data=None):
     try:
-        if method == 'put':
+        if method == 'PUT':
             return requests.put(url, json=data)
-        elif method == 'delete':
+        elif method == 'DELETE':
             return requests.delete(url, json=data)
         else:
             return requests.get(url)
     except requests.exceptions.ConnectionError:
         return None
 
+# Create a function to check if the length of the key <key> is more than 50 characters
 def is_key_valid(key):
-    return len(key) <= 50
+    return len(key) < 50
 
 # Create a function to replicate data based on method
-def replicate_data(key, value, method='put'):
+def broadcast(key, value, method='PUT'):
     for replica in sa_store:
         if replica != SOCKET_ADDRESS:
             try:
                 url = f"http://{replica}/kvs/{key}"
-                if method == 'put':
+                if method == 'PUT':
                     send_http_request(url, method, {"value": value})
-                else:
+                else: # method = 'DELETE'
                     send_http_request(url, method)
                 inc_vector_clock()
-            except requests.exceptions.ConnectionError:
-                # deletes the replica from the store if it is not reachable
+            except requests.exceptions.ConnectionError: # if not reachable
+                # if a replica is not reachable
+                # throws error **503 Service unavailable {"error": "Causal dependencies not satisfied; try again later"}**.
+                # Make sure that the write reaches that replica eventually.
+                # One method would be to sleep 1 second and retry the write at that replica until it is successful. This is buffering messages at the sender.
+                while True:
+                    try:
+                        url = f"http://{replica}/kvs/{key}"
+                        if method == 'PUT':
+                            response = send_http_request(url, method, {"value": value})
+                        else:  # method = 'DELETE'
+                            response = send_http_request(url, method)
+                        
+                        if response and response.status_code == 200:
+                            inc_vector_clock()
+                            break
+                        else:
+                            time.sleep(1)
+                    except requests.exceptions.ConnectionError:
+                        time.sleep(1)
+                # deletes the replica from the store by requesting to view to delete
                 requests.delete(f"http://{view}/view", json={"socket-address": replica})
-                # request to view to delete
-                pass
+                return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
+    
+    return None # make sure it successfully broadcasts to all replicas
 
 # print("Broadcasting self to other replicas")
 views = VIEW.split(",")
@@ -84,9 +106,6 @@ for view in views:
         pass
     
 # View operations - “view” refers to the current set of replicas among which the store is replicated.
-# A replica supports view operations to describe the current view, add a new replica to the view, or 
-# delete an existing replica from the view.
-    
 @app.route('/view', methods=['GET', 'PUT', 'DELETE'])
 def handle_view():
     if request.method == 'GET':
@@ -132,9 +151,6 @@ def handle_key(key):
     # Request body is JSON {"value": <value>, "causal-metadata": <V>}.
     # <V> is null when the PUT does not depend on prior writes.
 
-    # testing 
-    # print(f"Method received: {request.method}, Key: {key}")
-        
     # If the length of the key <key> is more than 50 characters, then return an error.
     # – Response code is 400 (Bad Request).
     # – Response body is JSON {"error": "Key is too long"}.
@@ -152,7 +168,7 @@ def handle_key(key):
             update_vector_clock(data['causal-metadata'])
             result = "created" if key not in kv_store else "replaced"
             kv_store[key] = value
-            replicate_data(key, value, 'put')
+            broadcast(key, value, 'put')
             return jsonify({"result": result}), 200 if result == "replaced" else 201
         # If the request body is not a JSON object with key "value", then return an error.
         # – Response code is 400 (Bad Request).
@@ -160,8 +176,6 @@ def handle_key(key):
         except (TypeError, KeyError):
             # print("Exception caught: Either TypeError or KeyError")
             return jsonify({"error": "PUT request does not specify a value"}), 400
-        
-        # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
 
         # if the <key> already exists in the store, then update the mapping to point to the new <value>.
         # – Response code is 200 (Ok).
@@ -211,7 +225,7 @@ def handle_key(key):
         if key in kv_store:
             del kv_store[key]
             for replica in sa_store:
-                replicate_data(key, None, 'delete')
+                broadcast(key, None, 'delete')
                 return jsonify({"result": "deleted"}), 200
         # If the key <key> does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
