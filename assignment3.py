@@ -19,14 +19,20 @@ kv_store = {} # in-memory key-value store using dictionary
 sa_store = {} # in-memory store for storing the set of replicas among which the store is replicated
 vector_clock = [0,0,0]
 
-# Create a function to update vector clock based on each replica
-def update_vector_clock():
+# Create a function to increment vector clock based on each replica to ensure the causal consistency
+def inc_vector_clock():
     if SOCKET_ADDRESS == "10.10.0.2:8090":
         vector_clock[0] += 1
     elif SOCKET_ADDRESS == "10.10.0.3:8090":
         vector_clock[1] += 1
     elif SOCKET_ADDRESS == "10.10.0.4:8090":
         vector_clock[2] += 1
+
+# Create a function to update vector clock based on each replica to ensure eventual consistency
+def update_vector_clock(v):
+        vector_clock[0] = max(vector_clock[0], v[0])
+        vector_clock[1] = max(vector_clock[1], v[1])
+        vector_clock[2] = max(vector_clock[2], v[2])
 
 # Create a function to send http request based on method
 def send_http_request(url, method='get', data=None):
@@ -53,10 +59,11 @@ def replicate_data(key, value, method='put'):
                     send_http_request(url, method, {"value": value})
                 else:
                     send_http_request(url, method)
-                update_vector_clock()
+                inc_vector_clock()
             except requests.exceptions.ConnectionError:
                 # deletes the replica from the store if it is not reachable
-                sa_store.pop(replica)
+                requests.delete(f"http://{view}/view", json={"socket-address": replica})
+                # request to view to delete
                 pass
 
 # print("Broadcasting self to other replicas")
@@ -138,10 +145,11 @@ def handle_key(key):
     # This endpoint is used to create or update key-value mappings in the store.
     # It is dictionary operations which add a new key.
     if request.method == 'PUT':
+        inc_vector_clock()
         try:
             data = request.get_json()
             value = data['value']
-            update_vector_clock()
+            update_vector_clock(data['causal-metadata'])
             result = "created" if key not in kv_store else "replaced"
             kv_store[key] = value
             replicate_data(key, value, 'put')
@@ -170,7 +178,9 @@ def handle_key(key):
         # Request body is JSON {"causal-metadata": <V>}.
         # – The <V> is null when the client does not know of prior writes.
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
-        update_vector_clock()
+        update_vector_clock(data['causal-metadata'])
+
+        inc_vector_clock()
         # If the key <key> exists in the store, then return the mapped value in the response.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "found", "value": "<value>", "causal-metadata": <V'>}
@@ -192,7 +202,8 @@ def handle_key(key):
         # – The <V> is null when the DELETE does not depend on prior writes. Note: This should never
         # happen. Think about why.
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
-        update_vector_clock()
+        update_vector_clock(data['causal-metadata'])
+        inc_vector_clock()
         # If the key <key> exists in the store, then remove it.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "deleted", "causal-metadata": <V'>}.
