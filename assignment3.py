@@ -10,22 +10,16 @@ from flask import Flask, request, Response, jsonify
 # If the store goes down and then gets started again, it does not need to contain the data
 # it had before the crash
 
-app = Flask(__name__) 
-#forwarding_address = os.environ.get("FORWARDING_ADDRESS")
-# The socket addesses are as follows: 10.10.0.2:8090, 10.10.0.3:8090, and 10.10.0.4:8090
+app = Flask(__name__)
 SOCKET_ADDRESS = os.environ.get("SOCKET_ADDRESS")
 VIEW = os.environ.get("VIEW")
 
-
-print("No forwarding address specified, running in main mode")
+# print("No forwarding address specified, running in main mode")
 kv_store = {} # in-memory key-value store using dictionary
 sa_store = {} # in-memory store for storing the set of replicas among which the store is replicated
-# vector_clock[0] represents replica at 10.10.0.2:8090
-# vector_clock[1] represents replica at 10.10.0.3:8090
-# vector_clock[2] represents replica at 10.10.0.4:8090
 vector_clock = [0,0,0]
 
-# Create a function to operate vector clock
+# Create a function to update vector clock based on each replica
 def update_vector_clock():
     if SOCKET_ADDRESS == "10.10.0.2:8090":
         vector_clock[0] += 1
@@ -33,6 +27,37 @@ def update_vector_clock():
         vector_clock[1] += 1
     elif SOCKET_ADDRESS == "10.10.0.4:8090":
         vector_clock[2] += 1
+
+# Create a function to send http request based on method
+def send_http_request(url, method='get', data=None):
+    try:
+        if method == 'put':
+            return requests.put(url, json=data)
+        elif method == 'delete':
+            return requests.delete(url, json=data)
+        else:
+            return requests.get(url)
+    except requests.exceptions.ConnectionError:
+        return None
+
+def is_key_valid(key):
+    return len(key) <= 50
+
+# Create a function to replicate data based on method
+def replicate_data(key, value, method='put'):
+    for replica in sa_store:
+        if replica != SOCKET_ADDRESS:
+            try:
+                url = f"http://{replica}/kvs/{key}"
+                if method == 'put':
+                    send_http_request(url, method, {"value": value})
+                else:
+                    send_http_request(url, method)
+                update_vector_clock()
+            except requests.exceptions.ConnectionError:
+                # deletes the replica from the store if it is not reachable
+                sa_store.pop(replica)
+                pass
 
 # print("Broadcasting self to other replicas")
 views = VIEW.split(",")
@@ -74,14 +99,8 @@ def handle_view():
         else:
             sa_store[replica] = True
             # send entire kv_store to the new replica
-            for key in kv_store:
-                try:
-                    requests.put(f"http://{replica}/kvs/{key}", json={"value": kv_store[key]})
-                    update_vector_clock()
-                except requests.exceptions.ConnectionError:
-                    # deletes the replica from the store if it is not reachable
-                    sa_store.pop(replica)
-                    pass
+            for key, value in kv_store.items():
+                send_http_request(f"http://{replica}/kvs/{key}", 'put', {"value": value})
             return jsonify({"result": "added"}), 201
             
     if request.method == 'DELETE':
@@ -95,13 +114,7 @@ def handle_view():
             #broadcasts DELETE-view requests to other replicas
             for view in views:
                 if view != SOCKET_ADDRESS:
-                    # print(f"Sending DELETE request to {view}")
-                    try:
-                        requests.delete(f"http://{view}/view", json={"socket-address": replica})
-                    except requests.exceptions.ConnectionError:
-                        # print("Connection error")
-                        pass 
-
+                    send_http_request(f"http://{view}/view", 'delete', {"socket-address": replica})
             return jsonify({"result": "deleted"}), 200
         else:
             return jsonify({"result": "View has no such replica"}), 404
@@ -118,7 +131,7 @@ def handle_key(key):
     # If the length of the key <key> is more than 50 characters, then return an error.
     # – Response code is 400 (Bad Request).
     # – Response body is JSON {"error": "Key is too long"}.
-    if len(key) > 50:
+    if not is_key_valid(key):
         return jsonify({"error": "Key is too long"}), 400
 
     # PUT HTTP method
@@ -129,6 +142,10 @@ def handle_key(key):
             data = request.get_json()
             value = data['value']
             update_vector_clock()
+            result = "created" if key not in kv_store else "replaced"
+            kv_store[key] = value
+            replicate_data(key, value, 'put')
+            return jsonify({"result": result}), 200 if result == "replaced" else 201
         # If the request body is not a JSON object with key "value", then return an error.
         # – Response code is 400 (Bad Request).
         # – Response body is JSON {"error": "PUT request does not specify a value"}
@@ -136,47 +153,15 @@ def handle_key(key):
             # print("Exception caught: Either TypeError or KeyError")
             return jsonify({"error": "PUT request does not specify a value"}), 400
         
-        # Write code to handle causal metadata here
-        #
-        #
-        #
-        #
-        #
-        
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
 
         # if the <key> already exists in the store, then update the mapping to point to the new <value>.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "replaced", "causal-metadata": <V'>}.
         #    *The <V'> here and in the 201 response indicates a causal dependency on <V> and this PUT.
-        if key in kv_store:
-            kv_store[key] = value
-            for replica in sa_store:
-                if replica != SOCKET_ADDRESS:
-                    try:
-                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value})
-                        update_vector_clock()
-                    except requests.exceptions.ConnectionError:
-                        # deletes the replica from the store if it is not reachable
-                        sa_store.pop(replica)
-                        pass
-                
-            return jsonify({"result": "replaced"}), 200
         # Otherwise, If the key <key> does not exist in the store, add a new mapping from <key> to <value> into the store.
         # – Response code is 201 (Created).
         # – Response body is JSON {"result": "created", "causal-metadata": <V'>}
-        else:
-            kv_store[key] = value
-            for replica in sa_store:
-                if replica != SOCKET_ADDRESS:
-                    try:
-                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value})
-                        update_vector_clock()
-                    except requests.exceptions.ConnectionError:
-                        # deletes the replica from the store if it is not reachable
-                        sa_store.pop(replica)
-                        pass
-            return jsonify({"result": "created"}), 201
 
     # GET HTTP method
     # This endpoint is used to read values from existing key-value mappings in the store. 
@@ -184,18 +169,8 @@ def handle_key(key):
     elif request.method == 'GET':
         # Request body is JSON {"causal-metadata": <V>}.
         # – The <V> is null when the client does not know of prior writes.
-        
-        # Write code to handle causal metadata here
-        #
-        #
-        #
-        #
-        #
-        
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
-        
         update_vector_clock()
-        
         # If the key <key> exists in the store, then return the mapped value in the response.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "found", "value": "<value>", "causal-metadata": <V'>}
@@ -216,18 +191,8 @@ def handle_key(key):
         # Request body is JSON {"causal-metadata": <V>}.
         # – The <V> is null when the DELETE does not depend on prior writes. Note: This should never
         # happen. Think about why.
-        
-        # Write code to handle causal metadata here
-        #
-        #
-        #
-        #
-        #
-        
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
-        
         update_vector_clock()
-        
         # If the key <key> exists in the store, then remove it.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "deleted", "causal-metadata": <V'>}.
@@ -235,15 +200,8 @@ def handle_key(key):
         if key in kv_store:
             del kv_store[key]
             for replica in sa_store:
-                if replica != SOCKET_ADDRESS:
-                    try:
-                        requests.delete(f"http://{replica}/kvs/{key}")
-                        update_vector_clock()
-                    except requests.exceptions.ConnectionError:
-                        # deletes the replica from the store if it is not reachable
-                        sa_store.pop(replica)
-                        pass
-            return jsonify({"result": "deleted"}), 200
+                replicate_data(key, None, 'delete')
+                return jsonify({"result": "deleted"}), 200
         # If the key <key> does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
         # – Response body is JSON {"error": "Key does not exist"}.
