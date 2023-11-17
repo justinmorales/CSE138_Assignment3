@@ -62,9 +62,9 @@ def broadcast(key, value, method):
                 if causal_metadata:
                     update_vector_clock(causal_metadata)
                 if method == 'PUT':
-                    send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
+                    send_http_request(url, method, {"value": value, "causal-metadata": vector_clock})
                 else: # method = 'DELETE'
-                    send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
+                    send_http_request(url, method, {"value": value, "causal-metadata": vector_clock})
                 inc_vector_clock()
             except requests.exceptions.ConnectionError: # if not reachable
                 # if a replica is not reachable
