@@ -164,16 +164,18 @@ def handle_key(key):
         try:
             data = request.get_json()
             value = data['value']
+
         except (TypeError, KeyError):
             # print("Exception caught: Either TypeError or KeyError")
             return jsonify({"error": "PUT request does not specify a value"}), 400
 
-        update_vector_clock(data['causal-metadata'])
+        causal_metadata = data.get('causal-metadata')
+        update_vector_clock(causal_metadata)
         inc_vector_clock()
         result = "created" if key not in kv_store else "replaced"
         kv_store[key] = value
         broadcast(key, value, 'PUT')
-        return jsonify({"result": result}), 200 if result == "replaced" else 201
+        return jsonify({"result": result, "causal-metadata": vector_clock}), 200 if result == "replaced" else 201
         # If the request body is not a JSON object with key "value", then return an error.
         # – Response code is 400 (Bad Request).
         # – Response body is JSON {"error": "PUT request does not specify a value"}
@@ -193,7 +195,9 @@ def handle_key(key):
         # Request body is JSON {"causal-metadata": <V>}.
         # – The <V> is null when the client does not know of prior writes.
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
-        update_vector_clock(data['causal-metadata'])
+        data = request.get_json()
+        causal_metadata = data.get('causal-metadata')
+        update_vector_clock(causal_metadata)
 
         inc_vector_clock()
         # If the key <key> exists in the store, then return the mapped value in the response.
@@ -201,7 +205,7 @@ def handle_key(key):
         # – Response body is JSON {"result": "found", "value": "<value>", "causal-metadata": <V'>}
         #    ∗ The <V'> indicates a causal dependency on the PUT of <key>,<value>.
         if key in kv_store:
-            return jsonify({"result": "found", "value": kv_store[key]}), 200
+            return jsonify({"result": "found", "value": kv_store[key], "causal-metadata": vector_clock}), 200
         # Otherwise, If the key does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
         # – Response body is JSON {"error": "Key does not exist"}.
@@ -217,7 +221,9 @@ def handle_key(key):
         # – The <V> is null when the DELETE does not depend on prior writes. Note: This should never
         # happen. Think about why.
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
-        update_vector_clock(data['causal-metadata'])
+        data = request.get_json()
+        causal_metadata = data.get('causal-metadata')
+        update_vector_clock(causal_metadata)
         inc_vector_clock()
         # If the key <key> exists in the store, then remove it.
         # – Response code is 200 (Ok).
@@ -226,8 +232,8 @@ def handle_key(key):
         if key in kv_store:
             del kv_store[key]
             for replica in sa_store:
-                broadcast(key, None, 'delete')
-                return jsonify({"result": "deleted"}), 200
+                broadcast(key, None, 'DELETE')
+                return jsonify({"result": "deleted", "causal-metadata": vector_clock}), 200
         # If the key <key> does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
         # – Response body is JSON {"error": "Key does not exist"}.
