@@ -170,7 +170,8 @@ def handle_key(key):
             return jsonify({"error": "PUT request does not specify a value"}), 400
 
         causal_metadata = data.get('causal-metadata')
-        update_vector_clock(causal_metadata)
+        if causal_metadata:
+            update_vector_clock(causal_metadata)
         inc_vector_clock()
         result = "created" if key not in kv_store else "replaced"
         kv_store[key] = value
@@ -197,7 +198,8 @@ def handle_key(key):
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
         data = request.get_json()
         causal_metadata = data.get('causal-metadata')
-        update_vector_clock(causal_metadata)
+        if causal_metadata:
+            update_vector_clock(causal_metadata)
 
         inc_vector_clock()
         # If the key <key> exists in the store, then return the mapped value in the response.
@@ -223,7 +225,8 @@ def handle_key(key):
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
         data = request.get_json()
         causal_metadata = data.get('causal-metadata')
-        update_vector_clock(causal_metadata)
+        if causal_metadata:
+            update_vector_clock(causal_metadata)
         inc_vector_clock()
         # If the key <key> exists in the store, then remove it.
         # – Response code is 200 (Ok).
