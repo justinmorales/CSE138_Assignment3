@@ -43,7 +43,7 @@ def send_http_request(url, method, data):
         elif method == 'DELETE':
             return requests.delete(url, json=data)
         else:
-            return requests.get(url)
+            return requests.get(url, json=data)
     except requests.exceptions.ConnectionError:
         return None
 
