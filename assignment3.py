@@ -36,7 +36,7 @@ def update_vector_clock(v):
         vector_clock[2] = max(vector_clock[2], v[2])
 
 # Create a function to send http request based on method
-def send_http_request(url, method='GET', data=None):
+def send_http_request(url, method, data):
     try:
         if method == 'PUT':
             return requests.put(url, json=data)
@@ -52,7 +52,7 @@ def is_key_valid(key):
     return len(key) < 50
 
 # Create a function to replicate data based on method
-def broadcast(key, value, method='PUT'):
+def broadcast(key, value, method):
     for replica in sa_store:
         if replica != SOCKET_ADDRESS:
             try:
@@ -161,21 +161,22 @@ def handle_key(key):
     # This endpoint is used to create or update key-value mappings in the store.
     # It is dictionary operations which add a new key.
     if request.method == 'PUT':
-        inc_vector_clock()
         try:
             data = request.get_json()
             value = data['value']
-            update_vector_clock(data['causal-metadata'])
-            result = "created" if key not in kv_store else "replaced"
-            kv_store[key] = value
-            broadcast(key, value, 'put')
-            return jsonify({"result": result}), 200 if result == "replaced" else 201
-        # If the request body is not a JSON object with key "value", then return an error.
-        # – Response code is 400 (Bad Request).
-        # – Response body is JSON {"error": "PUT request does not specify a value"}
         except (TypeError, KeyError):
             # print("Exception caught: Either TypeError or KeyError")
             return jsonify({"error": "PUT request does not specify a value"}), 400
+
+        update_vector_clock(data['causal-metadata'])
+        inc_vector_clock()
+        result = "created" if key not in kv_store else "replaced"
+        kv_store[key] = value
+        broadcast(key, value, 'PUT')
+        return jsonify({"result": result}), 200 if result == "replaced" else 201
+        # If the request body is not a JSON object with key "value", then return an error.
+        # – Response code is 400 (Bad Request).
+        # – Response body is JSON {"error": "PUT request does not specify a value"}
 
         # if the <key> already exists in the store, then update the mapping to point to the new <value>.
         # – Response code is 200 (Ok).
