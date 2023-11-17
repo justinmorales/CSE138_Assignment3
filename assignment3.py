@@ -57,10 +57,14 @@ def broadcast(key, value, method):
         if replica != SOCKET_ADDRESS:
             try:
                 url = f"http://{replica}/kvs/{key}"
+                data = request.get_json()
+                causal_metadata = data.get('causal-metadata')
+                if causal_metadata:
+                    update_vector_clock(causal_metadata)
                 if method == 'PUT':
-                    send_http_request(url, method, {"value": value})
+                    send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
                 else: # method = 'DELETE'
-                    send_http_request(url, method)
+                    send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
                 inc_vector_clock()
             except requests.exceptions.ConnectionError: # if not reachable
                 # if a replica is not reachable
@@ -70,10 +74,15 @@ def broadcast(key, value, method):
                 while True:
                     try:
                         url = f"http://{replica}/kvs/{key}"
+                        data = request.get_json()
+                        causal_metadata = data.get('causal-metadata')
+                        if causal_metadata:
+                            update_vector_clock(causal_metadata)
+
                         if method == 'PUT':
-                            response = send_http_request(url, method, {"value": value})
+                            response = send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
                         else:  # method = 'DELETE'
-                            response = send_http_request(url, method)
+                            response = send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
                         
                         if response and response.status_code == 200:
                             inc_vector_clock()
