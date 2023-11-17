@@ -42,7 +42,7 @@ def send_http_request(url, method, data):
             return requests.put(url, json=data)
         elif method == 'DELETE':
             return requests.delete(url, json=data)
-        else:
+        else: # method == 'GET'
             return requests.get(url, json=data)
     except requests.exceptions.ConnectionError:
         return None
@@ -79,9 +79,7 @@ def broadcast(key, value, method):
                         if causal_metadata:
                             update_vector_clock(causal_metadata)
 
-                        if method == 'PUT':
-                            response = send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
-                        else:  # method = 'DELETE'
+                        if method in ('GET', 'PUT', 'DELETE'):
                             response = send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
                         
                         if response and response.status_code == 200:
