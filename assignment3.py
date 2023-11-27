@@ -158,11 +158,14 @@ def handle_key(key):
         #    *The <V'> here and in the 201 response indicates a causal dependency on <V> and this PUT.
         if key in kv_store:
             kv_store[key] = value
+            b = SOCKET_ADDRESS
+            if "broadcasted" in data:
+                b = b + data['broadcasted']
             for replica in sa_store:
                 if replica != SOCKET_ADDRESS:
                     try:
                         inc_vector_clock()
-                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock})
+                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock, "broadcasted": b})
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
                         sa_store.pop(replica)
