@@ -85,7 +85,7 @@ def handle_view():
                     requests.put(f"http://{replica}/kvs/{key}", json={"value": kv_store[key],"causal-metadata": vector_clock})
                 except requests.exceptions.ConnectionError:
                     # deletes the replica from the store if it is not reachable
-                    sa_store.pop(replica)
+                    requests.delete(f"http://{SOCKET_ADDRESS}/view", json={"socket-address": replica})
                     pass
             return jsonify({"result": "added"}), 201
             
@@ -158,17 +158,20 @@ def handle_key(key):
         #    *The <V'> here and in the 201 response indicates a causal dependency on <V> and this PUT.
         if key in kv_store:
             kv_store[key] = value
-            b = SOCKET_ADDRESS
-            if "broadcasted" in data:
-                b = b + data['broadcasted']
+            saved_addresses = SOCKET_ADDRESS
+            if "saved-in" in data:
+                addresses_string = data["saved-in"]
+                saved_addresses = saved_addresses + "," + addresses_string
+                split_addresses = saved_addresses.split(",")
             for replica in sa_store:
-                if replica != SOCKET_ADDRESS:
+                if replica not in split_addresses:
                     try:
                         inc_vector_clock()
-                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock, "broadcasted": b})
+                        forward = requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock, "saved-in": saved_addresses})
+                        update_vector_clock(forward.json()['causal-metadata'])
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
-                        sa_store.pop(replica)
+                        requests.delete(f"http://{SOCKET_ADDRESS}/view", json={"socket-address": replica})
                         pass
                 
             return jsonify({"result": "replaced", "causal-metadata": vector_clock}), 200
@@ -177,14 +180,20 @@ def handle_key(key):
         # – Response body is JSON {"result": "created", "causal-metadata": <V'>}
         else:
             kv_store[key] = value
+            saved_addresses = SOCKET_ADDRESS
+            if "saved-in" in data:
+                addresses_string = data["saved-in"]
+                saved_addresses = saved_addresses + "," + addresses_string
+                split_addresses = saved_addresses.split(",")
             for replica in sa_store:
-                if replica != SOCKET_ADDRESS:
+                if replica not in split_addresses:
                     try:
                         inc_vector_clock()
-                        requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock})
+                        forwards = requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock, "saved-in": saved_addresses})
+                        update_vector_clock(forwards.json()['causal-metadata'])
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
-                        sa_store.pop(replica)
+                        requests.delete(f"http://{SOCKET_ADDRESS}/view", json={"socket-address": replica})
                         pass
             return jsonify({"result": "created", "causal-metadata": vector_clock}), 201
 
@@ -248,10 +257,11 @@ def handle_key(key):
                 if replica != SOCKET_ADDRESS:
                     try:
                         inc_vector_clock()
-                        requests.delete(f"http://{replica}/kvs/{key}")
+                        forward = requests.delete(f"http://{replica}/kvs/{key}")
+                        update_vector_clock(forward.json()['causal-metadata'])
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
-                        sa_store.pop(replica)
+                        requests.delete(f"http://{SOCKET_ADDRESS}/view", json={"socket-address": replica})
                         pass
             return jsonify({"result": "deleted", "causal-metadata": vector_clock}), 200
         # If the key <key> does not exist in the store, then return an error.
