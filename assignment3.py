@@ -82,10 +82,12 @@ def handle_view():
             for key in kv_store:
                 try:
                     inc_vector_clock()
-                    requests.put(f"http://{replica}/kvs/{key}", json={"value": kv_store[key],"causal-metadata": vector_clock})
+                    url = f"http://{replica}/kvs/{key}"
+                    requests.put(url, json={"value": kv_store[key],"causal-metadata": vector_clock})
                 except requests.exceptions.ConnectionError:
                     # deletes the replica from the store if it is not reachable
-                    requests.delete(f"http://{SOCKET_ADDRESS}/view", json={"socket-address": replica})
+                    url = f"http://{SOCKET_ADDRESS}/view"
+                    requests.delete(url, json={"socket-address": replica})
                     pass
             return jsonify({"result": "added"}), 201
             
@@ -167,11 +169,13 @@ def handle_key(key):
                 if replica not in split_addresses:
                     try:
                         inc_vector_clock()
-                        forward = requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock, "saved-in": saved_addresses})
+                        url = f"http://{replica}/kvs/{key}"
+                        forward = requests.put(url, json={"value": value, "causal-metadata": vector_clock, "saved-in": saved_addresses})
                         update_vector_clock(forward.json()['causal-metadata'])
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
-                        requests.delete(f"http://{SOCKET_ADDRESS}/view", json={"socket-address": replica})
+                        url = f"http://{SOCKET_ADDRESS}/view"
+                        requests.delete(url, json={"socket-address": replica})
                         pass
                 
             return jsonify({"result": "replaced", "causal-metadata": vector_clock}), 200
@@ -189,11 +193,13 @@ def handle_key(key):
                 if replica not in split_addresses:
                     try:
                         inc_vector_clock()
-                        forwards = requests.put(f"http://{replica}/kvs/{key}", json={"value": value, "causal-metadata": vector_clock, "saved-in": saved_addresses})
+                        url = f"http://{replica}/kvs/{key}"
+                        forwards = requests.put(url, json={"value": value, "causal-metadata": vector_clock, "saved-in": saved_addresses})
                         update_vector_clock(forwards.json()['causal-metadata'])
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
-                        requests.delete(f"http://{SOCKET_ADDRESS}/view", json={"socket-address": replica})
+                        url = f"http://{SOCKET_ADDRESS}/view"
+                        requests.delete(url, json={"socket-address": replica})
                         pass
             return jsonify({"result": "created", "causal-metadata": vector_clock}), 201
 
@@ -257,7 +263,8 @@ def handle_key(key):
                 if replica != SOCKET_ADDRESS:
                     try:
                         inc_vector_clock()
-                        forward = requests.delete(f"http://{replica}/kvs/{key}")
+                        url = f"http://{replica}/kvs/{key}"
+                        forward = requests.delete(url, json={"causal-metadata": vector_clock})
                         update_vector_clock(forward.json()['causal-metadata'])
                     except requests.exceptions.ConnectionError:
                         # deletes the replica from the store if it is not reachable
