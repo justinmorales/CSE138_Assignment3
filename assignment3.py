@@ -159,6 +159,7 @@ def handle_key(key):
     # This endpoint is used to create or update key-value mappings in the store.
     # It is dictionary operations which add a new key.
     if request.method == 'PUT':
+        # testing 500 ERROR
         # r = requests.requests.put(url, json=data)
         # try:
         #     r.raise_for_status()
