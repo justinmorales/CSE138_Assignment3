@@ -184,7 +184,7 @@ def handle_key(key):
         result = "created" if key not in kv_store else "replaced"
         kv_store[key] = value
 
-        saved_addresses = []
+        saved_addresses = [SOCKET_ADDRESS]
         if "saved-in" in data:
             addresses_string = data["saved-in"]
             saved_addresses = saved_addresses + "," + addresses_string
@@ -201,7 +201,7 @@ def handle_key(key):
                     if causal_metadata:
                         update_vector_clock(causal_metadata)
                     method = request.method
-                    send_http_request(url, method, {"value": value, "causal-metadata": vector_clock})
+                    send_http_request(url, method, {"value": value, "causal-metadata": vector_clock, "saved-in": saved_addresses})
                     # inc_vector_clock()
                 except requests.exceptions.ConnectionError:
                     while True:
