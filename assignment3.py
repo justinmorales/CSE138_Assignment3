@@ -186,11 +186,13 @@ def handle_key(key):
 
         saved_addresses = [SOCKET_ADDRESS]
         if "saved-in" in data:
+            print("========== test ===========%s", data["saved-in"])
             addresses_string = data["saved-in"]
             saved_addresses = saved_addresses + "," + addresses_string
             split_addresses = saved_addresses.split(",")
             # saved_addresses.append(1)
             saved_addresses = saved_addresses + split_addresses
+            # print(saved_addresses)
 
         for replica in sa_store:
             if replica not in saved_addresses:
@@ -213,7 +215,7 @@ def handle_key(key):
                                 update_vector_clock(causal_metadata)
 
                             if method in ('GET', 'PUT', 'DELETE'):
-                                response = send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
+                                response = send_http_request(url, method, {"value": value, "causual-metadata": vector_clock, "saved-in": saved_addresses})
                             
                             if response and response.status_code == 200:
                                 inc_vector_clock()
