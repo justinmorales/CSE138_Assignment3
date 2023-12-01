@@ -3,15 +3,6 @@ import requests
 import time
 from flask import Flask, request, Response, jsonify
 
-# Part1
-# Create a Key-value Store that will support 
-# 1) adding a new key-value pair to the store,
-# 2) retrieving and updating the value of an existing key
-# 3) deleting an existing key from the store.
-
-# The store does not need to persist the key value dta, i.e., it can store data in memory only.
-# If the store goes down and then gets started again, it does not need to contain the data it had before the crash
-
 app = Flask(__name__)
 SOCKET_ADDRESS = os.environ.get("SOCKET_ADDRESS")
 VIEW = os.environ.get("VIEW")
@@ -182,7 +173,43 @@ def handle_key(key):
         inc_vector_clock()
         result = "created" if key not in kv_store else "replaced"
         kv_store[key] = value
-        broadcast(key, value, 'PUT')
+        saved_addresses = SOCKET_ADDRESS
+        if "saved-in" in data:
+            addresses_string = data["saved-in"]
+            saved_addresses = saved_addresses + "," + addresses_string
+            split_addresses = saved_addresses.split(",")
+        
+        for replica in sa_store:
+            if replica not in split_addresses and replica != SOCKET_ADDRESS:
+                try:
+                    inc_vector_clock()
+                    url = f"http://{replica}/kvs/{key}"
+                    causal_metadata = data.get('causal-metadata')
+                    if causal_metadata:
+                        update_vector_clock(causal_metadata)
+                    method = request.method
+                    send_http_request(url, method, {"value": value, "causal-metadata": vector_clock})
+                    # inc_vector_clock()
+                except requests.exceptions.ConnectionError:
+                    while True:
+                        try:
+                            url = f"http://{replica}/kvs/{key}"
+                            data = request.get_json()
+                            causal_metadata = data.get('causal-metadata')
+                            if causal_metadata:
+                                update_vector_clock(causal_metadata)
+
+                            if method in ('GET', 'PUT', 'DELETE'):
+                                response = send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
+                            
+                            if response and response.status_code == 200:
+                                inc_vector_clock()
+                                break
+                            else:
+                                time.sleep(1)
+                        except requests.exceptions.ConnectionError:
+                            time.sleep(1)
+            
         return jsonify({"result": result, "causal-metadata": vector_clock}), 200 if result == "replaced" else 201
         # If the request body is not a JSON object with key "value", then return an error.
         # – Response code is 400 (Bad Request).
