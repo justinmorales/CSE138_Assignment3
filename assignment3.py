@@ -159,6 +159,16 @@ def handle_key(key):
     # This endpoint is used to create or update key-value mappings in the store.
     # It is dictionary operations which add a new key.
     if request.method == 'PUT':
+        # r = requests.requests.put(url, json=data)
+        # try:
+        #     r.raise_for_status()
+        # except requests.exceptions.HTTPError:
+        #     print("Error: 500 or 404")
+        #     # Gave a 500 or 404
+        # else:
+        #     # Move on with your life! Yay!
+        #     print("success")
+            
         try:
             data = request.get_json()
             value = data['value']
@@ -173,14 +183,17 @@ def handle_key(key):
         inc_vector_clock()
         result = "created" if key not in kv_store else "replaced"
         kv_store[key] = value
-        saved_addresses = SOCKET_ADDRESS
+
+        saved_addresses = []
         if "saved-in" in data:
             addresses_string = data["saved-in"]
             saved_addresses = saved_addresses + "," + addresses_string
             split_addresses = saved_addresses.split(",")
-        
+            # saved_addresses.append(1)
+            saved_addresses = saved_addresses + split_addresses
+
         for replica in sa_store:
-            if replica not in split_addresses and replica != SOCKET_ADDRESS:
+            if replica not in saved_addresses:
                 try:
                     inc_vector_clock()
                     url = f"http://{replica}/kvs/{key}"
