@@ -92,7 +92,7 @@ for view in views:
     if view != SOCKET_ADDRESS:
         # print(f"Sending PUT request to {view}")
         try:
-            requests.put(f"http://{view}/view", json={"socket-address": SOCKET_ADDRESS})
+            requests.put(f"http://{view}/view", json={"socket-address": SOCKET_ADDRESS}, timeout=0.2)
         except requests.exceptions.ConnectionError:
             # print("Connection error")
             pass
@@ -158,72 +158,39 @@ def handle_key(key):
     # PUT HTTP method
     # This endpoint is used to create or update key-value mappings in the store.
     # It is dictionary operations which add a new key.
-    if request.method == 'PUT':
-        # r = requests.requests.put(url, json=data)
-        # try:
-        #     r.raise_for_status()
-        # except requests.exceptions.HTTPError:
-        #     print("Error: 500 or 404")
-        #     # Gave a 500 or 404
-        # else:
-        #     # Move on with your life! Yay!
-        #     print("success")
-            
+    if request.method == 'PUT':          
         try:
             data = request.get_json()
-            value = data['value']
+            # print(data["value"])
+            value = data["value"]
 
         except (TypeError, KeyError):
             # print("Exception caught: Either TypeError or KeyError")
             return jsonify({"error": "PUT request does not specify a value"}), 400
 
         causal_metadata = data.get('causal-metadata')
-        if causal_metadata:
+        if causal_metadata != None:
             update_vector_clock(causal_metadata)
         inc_vector_clock()
         result = "created" if key not in kv_store else "replaced"
         kv_store[key] = value
 
-        saved_addresses = [SOCKET_ADDRESS]
-        if "saved-in" in data:
-            print("========== test ===========%s", data["saved-in"])
-            addresses_string = data["saved-in"]
-            saved_addresses = saved_addresses + "," + addresses_string
-            split_addresses = saved_addresses.split(",")
-            # saved_addresses.append(1)
-            saved_addresses = saved_addresses + split_addresses
-            # print(saved_addresses)
+        if "broadcasted" in data:
+            return jsonify({"result": result, "causal-metadata": vector_clock}), 200 if result == "replaced" else 201
 
         for replica in sa_store:
-            if replica not in saved_addresses:
+            if replica != SOCKET_ADDRESS:
                 try:
-                    inc_vector_clock()
+                    #inc_vector_clock()
                     url = f"http://{replica}/kvs/{key}"
-                    causal_metadata = data.get('causal-metadata')
-                    if causal_metadata:
-                        update_vector_clock(causal_metadata)
                     method = request.method
-                    send_http_request(url, method, {"value": value, "causal-metadata": vector_clock, "saved-in": saved_addresses})
-                    # inc_vector_clock()
+                    r = send_http_request(url, method, {"value": value, "causal-metadata": vector_clock, "broadcasted": "true"})
+                    # update vector clock after request is returned
+                    if r and (r.status_code == 200 or r.status_code == 201):
+                        update_vector_clock(r.json()["causal-metadata"])
+                
                 except requests.exceptions.ConnectionError:
-                    while True:
-                        try:
-                            url = f"http://{replica}/kvs/{key}"
-                            data = request.get_json()
-                            causal_metadata = data.get('causal-metadata')
-                            if causal_metadata:
-                                update_vector_clock(causal_metadata)
-
-                            if method in ('GET', 'PUT', 'DELETE'):
-                                response = send_http_request(url, method, {"value": value, "causual-metadata": vector_clock, "saved-in": saved_addresses})
-                            
-                            if response and response.status_code == 200:
-                                inc_vector_clock()
-                                break
-                            else:
-                                time.sleep(1)
-                        except requests.exceptions.ConnectionError:
-                            time.sleep(1)
+                    return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
             
         return jsonify({"result": result, "causal-metadata": vector_clock}), 200 if result == "replaced" else 201
         # If the request body is not a JSON object with key "value", then return an error.
