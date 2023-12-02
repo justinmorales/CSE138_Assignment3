@@ -26,65 +26,9 @@ def update_vector_clock(v):
         vector_clock[1] = max(vector_clock[1], v[1])
         vector_clock[2] = max(vector_clock[2], v[2])
 
-# Create a function to send http request based on method
-def send_http_request(url, method, data):
-    try:
-        if method == 'PUT':
-            return requests.put(url, json=data)
-        elif method == 'DELETE':
-            return requests.delete(url, json=data)
-        else: # method == 'GET'
-            return requests.get(url, json=data)
-    except requests.exceptions.ConnectionError:
-        return None
-
 # Create a function to check if the length of the key <key> is more than 50 characters
 def is_key_valid(key):
     return len(key) < 50
-
-# Create a function to replicate data based on method
-def broadcast(key, value, method):
-    for replica in sa_store:
-        if replica != SOCKET_ADDRESS:
-            try:
-                url = f"http://{replica}/kvs/{key}"
-                data = request.get_json()
-                causal_metadata = data.get('causal-metadata')
-                if causal_metadata:
-                    update_vector_clock(causal_metadata)
-                if method == 'PUT':
-                    send_http_request(url, method, {"value": value, "causal-metadata": vector_clock})
-                else: # method = 'DELETE'
-                    send_http_request(url, method, {"value": value, "causal-metadata": vector_clock})
-                inc_vector_clock()
-            except requests.exceptions.ConnectionError: # if not reachable
-                # if a replica is not reachable
-                # throws error **503 Service unavailable {"error": "Causal dependencies not satisfied; try again later"}**.
-                # Make sure that the write reaches that replica eventually.
-                # One method would be to sleep 1 second and retry the write at that replica until it is successful. This is buffering messages at the sender.
-                while True:
-                    try:
-                        url = f"http://{replica}/kvs/{key}"
-                        data = request.get_json()
-                        causal_metadata = data.get('causal-metadata')
-                        if causal_metadata:
-                            update_vector_clock(causal_metadata)
-
-                        if method in ('GET', 'PUT', 'DELETE'):
-                            response = send_http_request(url, method, {"value": value, "causual-metadata": vector_clock})
-                        
-                        if response and response.status_code == 200:
-                            inc_vector_clock()
-                            break
-                        else:
-                            time.sleep(1)
-                    except requests.exceptions.ConnectionError:
-                        time.sleep(1)
-                # deletes the replica from the store by requesting to view to delete
-                requests.delete(f"http://{view}/view", json={"socket-address": replica})
-                return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
-    
-    return None # make sure it successfully broadcasts to all replicas
 
 # print("Broadcasting self to other replicas")
 views = VIEW.split(",")
@@ -124,7 +68,12 @@ def handle_view():
             sa_store[replica] = True
             # send entire kv_store to the new replica
             for key, value in kv_store.items():
-                send_http_request(f"http://{replica}/kvs/{key}", 'put', {"value": value})
+                url = f"http://{replica}/kvs/{key}"
+                try:
+                    requests.put(url, json={"value": value, "causal-metadata": vector_clock, "broadcasted": "true"}, timeout=0.2)
+                except requests.exceptions.ConnectionError:
+                    pass
+                    #jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
             return jsonify({"result": "added"}), 201
             
     if request.method == 'DELETE':
@@ -140,7 +89,11 @@ def handle_view():
             #broadcasts DELETE-view requests to other replicas
             for view in sa_store:
                 if view != SOCKET_ADDRESS:
-                    send_http_request(f"http://{view}/view", 'delete', {"socket-address": replica, "broadcasted": "true"})
+                    url = f"http://{view}/view"
+                    try:
+                        requests.delete(url, json={"socket-address": replica, "broadcasted": "true"}, timeout=0.2)
+                    except requests.exceptions.ConnectionError:
+                        pass
             return jsonify({"result": "deleted"}), 200
         else:
             return jsonify({"result": "View has no such replica"}), 404
@@ -179,22 +132,26 @@ def handle_key(key):
 
         if "broadcasted" in data:
             return jsonify({"result": result, "causal-metadata": vector_clock}), 200 if result == "replaced" else 201
+        
+        # This variable makes it so we can modify the size of the dictionary while iterating over it
+        temp_sa_store = sa_store.copy()
 
-        for replica in sa_store:
+        for replica in temp_sa_store:
             if replica != SOCKET_ADDRESS:
                 try:
                     #inc_vector_clock()
                     url = f"http://{replica}/kvs/{key}"
                     method = request.method
-                    r = send_http_request(url, method, {"value": value, "causal-metadata": vector_clock, "broadcasted": "true"})
+                    r = requests.put(url, json={"value": value, "causal-metadata": vector_clock, "broadcasted": "true"})
                     # update vector clock after request is returned
                     if r and (r.status_code == 200 or r.status_code == 201):
                         update_vector_clock(r.json()["causal-metadata"])
                 
                 except requests.exceptions.ConnectionError:
                     url = f"http://{SOCKET_ADDRESS}/view"
-                    send_http_request(url, 'delete', {"socket-address": replica})
-                    return jsonify({"error": "Connection Error"}), 503
+                    requests.delete(url, json={"socket-address": replica})
+                    pass
+                    # return jsonify({"error": "Causal dependenies not satisfied; try again later"}), 503
             
         return jsonify({"result": result, "causal-metadata": vector_clock}), 200 if result == "replaced" else 201
         # If the request body is not a JSON object with key "value", then return an error.
@@ -256,14 +213,20 @@ def handle_key(key):
             del kv_store[key]
             if "broadcasted" in data:
                 return jsonify({"result": "deleted", "causal-metadata": vector_clock, "broadcasted": "true"}), 200
-            for replica in sa_store:
+            
+            # This variable makes it so we can modify the size of the dictionary while iterating over it
+            temp_sa_store = sa_store.copy()
+            
+            for replica in temp_sa_store:
                 # broadcast(key, None, 'DELETE')
                 try: 
-                    send_http_request(f"http://{replica}/kvs/{key}", 'delete', {"value": None, "causal-metadata": vector_clock, "broadcasted": "true"})
+                    url = f"http://{replica}/kvs/{key}"
+                    requests.delete(url, json={"value": None, "causal-metadata": vector_clock, "broadcasted": "true"})
                 except requests.exceptions.ConnectionError:
                     url = f"http://{SOCKET_ADDRESS}/view"
-                    send_http_request(url, 'delete', {"socket-address": replica})
-                    return jsonify({"error": "Connection Error"}), 503
+                    requests.delete(url, json={"socket-address": replica})
+                    pass
+                    # return jsonify({"error": "Causal dependenies not satisfied; try again later"}), 503
                 return jsonify({"result": "deleted", "causal-metadata": vector_clock, "broadcasted": "true"}), 200
         # If the key <key> does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
