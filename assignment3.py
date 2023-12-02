@@ -19,6 +19,17 @@ def inc_vector_clock():
         vector_clock[1] += 1
     elif SOCKET_ADDRESS == "10.10.0.4:8090":
         vector_clock[2] += 1
+        
+def compare_vector_clock(v):
+    if SOCKET_ADDRESS == "10.10.0.2:8090":
+        if vector_clock[0] < v[1] or vector_clock[0] < v[2]:
+            return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
+    elif SOCKET_ADDRESS == "10.10.0.3:8090":
+        if vector_clock[1] < v[0] or vector_clock[1] < v[2]:
+            return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
+    elif SOCKET_ADDRESS == "10.10.0.4:8090":
+        if vector_clock[2] < v[0] or vector_clock[2] < v[1]:
+            return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
 
 # Create a function to update vector clock based on each replica to ensure eventual consistency
 def update_vector_clock(v):
@@ -118,9 +129,11 @@ def handle_key(key):
             return jsonify({"error": "PUT request does not specify a value"}), 400
 
         causal_metadata = data.get('causal-metadata')
-        if causal_metadata != None:
-            update_vector_clock(causal_metadata)
         inc_vector_clock()
+        
+        if causal_metadata:
+            compare_vector_clock(causal_metadata)
+            update_vector_clock(causal_metadata)
         result = "created" if key not in kv_store else "replaced"
         kv_store[key] = value
 
@@ -144,8 +157,15 @@ def handle_key(key):
                 except requests.exceptions.ConnectionError:
                     url = f"http://{SOCKET_ADDRESS}/view"
                     requests.delete(url, json={"socket-address": replica})
-                    pass
-                    # return jsonify({"error": "Causal dependenies not satisfied; try again later"}), 503
+                    # try again
+                    #while True:
+                    #    retry = requests.put(url, json={"value": value, "causal-metadata": vector_clock, "broadcasted": "true"}, timeout=1)
+                    #    if retry and (retry.status_code == 200 or r.status_code == 201):
+                    #        update_vector_clock(retry.json()["causal-metadata"])
+                    #        break
+                    #    else:
+                    #        time.sleep(1)
+                    #        continue
             
         return jsonify({"result": result, "causal-metadata": vector_clock}), 200 if result == "replaced" else 201
         # If the request body is not a JSON object with key "value", then return an error.
@@ -169,10 +189,13 @@ def handle_key(key):
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
         data = request.get_json()
         causal_metadata = data.get('causal-metadata')
-        if causal_metadata:
-            update_vector_clock(causal_metadata)
 
-        inc_vector_clock()
+        if causal_metadata:
+            compare_vector_clock(causal_metadata)
+            #compare = [x > y for x, y in zip(causal_metadata, vector_clock)]
+            #if any(compare):
+            #    return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
+
         # If the key <key> exists in the store, then return the mapped value in the response.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "found", "value": "<value>", "causal-metadata": <V'>}
@@ -196,9 +219,10 @@ def handle_key(key):
         # – 503 (Service Unavailable) {"error": "Causal dependencies not satisfied; try again later"}
         data = request.get_json()
         causal_metadata = data.get('causal-metadata')
-        if causal_metadata:
-            update_vector_clock(causal_metadata)
         inc_vector_clock()
+        if causal_metadata:
+            compare_vector_clock(causal_metadata)
+            update_vector_clock(causal_metadata)
         # If the key <key> exists in the store, then remove it.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "deleted", "causal-metadata": <V'>}.
