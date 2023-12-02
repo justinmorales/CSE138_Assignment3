@@ -135,10 +135,12 @@ def handle_view():
         replica = data['socket-address']
         if replica in sa_store:
             del sa_store[replica]
+            if "broadcasted" in data:
+                return jsonify({"result": "deleted"}), 200
             #broadcasts DELETE-view requests to other replicas
-            for view in views:
+            for view in sa_store:
                 if view != SOCKET_ADDRESS:
-                    send_http_request(f"http://{view}/view", 'delete', {"socket-address": replica})
+                    send_http_request(f"http://{view}/view", 'delete', {"socket-address": replica, "broadcasted": "true"})
             return jsonify({"result": "deleted"}), 200
         else:
             return jsonify({"result": "View has no such replica"}), 404
@@ -190,7 +192,9 @@ def handle_key(key):
                         update_vector_clock(r.json()["causal-metadata"])
                 
                 except requests.exceptions.ConnectionError:
-                    return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
+                    url = f"http://{SOCKET_ADDRESS}/view"
+                    send_http_request(url, 'delete', {"socket-address": replica})
+                    return jsonify({"error": "Connection Error"}), 503
             
         return jsonify({"result": result, "causal-metadata": vector_clock}), 200 if result == "replaced" else 201
         # If the request body is not a JSON object with key "value", then return an error.
@@ -250,9 +254,17 @@ def handle_key(key):
         # ∗ The <V'> indicates a causal dependency on <V> and this DELETE
         if key in kv_store:
             del kv_store[key]
+            if "broadcasted" in data:
+                return jsonify({"result": "deleted", "causal-metadata": vector_clock, "broadcasted": "true"}), 200
             for replica in sa_store:
-                broadcast(key, None, 'DELETE')
-                return jsonify({"result": "deleted", "causal-metadata": vector_clock}), 200
+                # broadcast(key, None, 'DELETE')
+                try: 
+                    send_http_request(f"http://{replica}/kvs/{key}", 'delete', {"value": None, "causal-metadata": vector_clock, "broadcasted": "true"})
+                except requests.exceptions.ConnectionError:
+                    url = f"http://{SOCKET_ADDRESS}/view"
+                    send_http_request(url, 'delete', {"socket-address": replica})
+                    return jsonify({"error": "Connection Error"}), 503
+                return jsonify({"result": "deleted", "causal-metadata": vector_clock, "broadcasted": "true"}), 200
         # If the key <key> does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
         # – Response body is JSON {"error": "Key does not exist"}.
