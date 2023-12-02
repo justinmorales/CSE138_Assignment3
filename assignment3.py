@@ -11,6 +11,10 @@ kv_store = {} # in-memory key-value store using dictionary
 sa_store = {} # in-memory store for storing the set of replicas among which the store is replicated
 vector_clock = [0,0,0]
 
+recovery_store = {"10.10.0.2:8090" : {},
+                  "10.10.0.3:8090" : {},
+                  "10.10.0.4:8090" : {}}
+
 # Create a function to increment vector clock based on each replica to ensure the causal consistency
 def inc_vector_clock():
     if SOCKET_ADDRESS == "10.10.0.2:8090":
@@ -54,8 +58,9 @@ for view in views:
         else:
             # print("PUT request successful")
             sa_store[view] = True
-            r = requests.get(f"http://{view}/kvs")
-            kv_store.update(r.json())
+            r = requests.get(f"http://{view}/kvs", json={"socket-address": SOCKET_ADDRESS})
+            kv_store.update(r.json()["recovery_data"])
+            update_vector_clock(r.json()["causal-metadata"])
     if view == SOCKET_ADDRESS:
         sa_store[view] = True
         pass
@@ -88,6 +93,7 @@ def handle_view():
         data = request.get_json()
         replica = data['socket-address']
         if replica in sa_store:
+            recovery_store[replica] = kv_store
             del sa_store[replica]
             if "broadcasted" in data:
                 return jsonify({"result": "deleted"}), 200
@@ -158,14 +164,6 @@ def handle_key(key):
                     url = f"http://{SOCKET_ADDRESS}/view"
                     requests.delete(url, json={"socket-address": replica})
                     # try again
-                    #while True:
-                    #    retry = requests.put(url, json={"value": value, "causal-metadata": vector_clock, "broadcasted": "true"}, timeout=1)
-                    #    if retry and (retry.status_code == 200 or r.status_code == 201):
-                    #        update_vector_clock(retry.json()["causal-metadata"])
-                    #        break
-                    #    else:
-                    #        time.sleep(1)
-                    #        continue
             
         return jsonify({"result": result, "causal-metadata": vector_clock}), 200 if result == "replaced" else 201
         # If the request body is not a JSON object with key "value", then return an error.
@@ -258,7 +256,9 @@ def get_key_list():
     # This method returns a list of all keys and values in the store.
     # – Response code is 200 (Ok).
     # – Response body is JSON {"key1": "value1", "key2": "value2", ...}.
-    return jsonify(kv_store), 200
+    data = request.get_json('socket-address')
+    socket_address = str(data)  # Convert data to a string
+    return jsonify({"recovery_data": kv_store, "causal-metadata": vector_clock}), 200
     
     
 if __name__=='__main__':
