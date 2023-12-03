@@ -260,9 +260,10 @@ def get_key_list():
     data = request.get_json('socket-address')
     socket_address = str(data)  # Convert data to a string
     
+    recovery_kvs = {}
     recovery_kvs = copy.deepcopy(socket_address)
     #recovery_kvs = recovery_store[socket_address]
-    return jsonify({"recovery_data": kv_store, "causal-metadata": vector_clock}), 200
+    return jsonify({"recovery_data": recovery_kvs, "causal-metadata": vector_clock}), 200
     
     
 if __name__=='__main__':
