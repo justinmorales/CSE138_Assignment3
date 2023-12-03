@@ -1,6 +1,7 @@
 import os
 import requests
 import time
+import copy
 from flask import Flask, request, Response, jsonify
 
 app = Flask(__name__)
@@ -258,6 +259,9 @@ def get_key_list():
     # – Response body is JSON {"key1": "value1", "key2": "value2", ...}.
     data = request.get_json('socket-address')
     socket_address = str(data)  # Convert data to a string
+    
+    recovery_kvs = copy.deepcopy(socket_address)
+    #recovery_kvs = recovery_store[socket_address]
     return jsonify({"recovery_data": kv_store, "causal-metadata": vector_clock}), 200
     
     
