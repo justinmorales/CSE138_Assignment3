@@ -15,7 +15,7 @@ Citations
 
 Team Contributions
 ==================
-* Jun Hayashida -
+* Jun Hayashida - Contributed to the design and implementation of vector clock operation to ensure maintaining eventual consistency across the distribued system. Involved in testing the code to identify and rectify errors, ensuring the system;s reliablility and correctness. Played a role in enhancing the readability and efficiency of the code, making it more maintainable and performant.
 * Justin Morales - Designed the key/value store routes and how they function, designed the broadcasting mechanism we are using, designed
  the vector clock functionality,designed the view routes and their funstionality, designed the mechanism of how the replicas discover
  eachother in a system, designed the mechanism that checks if a replica is out of date, designed a mechanism for replicas to discover
@@ -24,8 +24,7 @@ Team Contributions
 
 Mechanism Description
 ==================
-Describe how your system tracks causal dependencies, and how your
-system detects when a replica goes down.
+Describe how your system tracks causal dependencies, and how your system detects when a replica goes down.
 
 The mechanism we use is very simple. If a replica goes down, the only reason they would need to know if a replica was down is in the event 
 of a change in the key/value store, so in the event of a broadcast, they will know that the replica went down to then remove it from their 
