@@ -1,7 +1,6 @@
 import os
 import requests
-import time
-import copy
+
 from flask import Flask, request, Response, jsonify
 
 app = Flask(__name__)
@@ -44,18 +43,14 @@ def update_vector_clock(v):
 def is_key_valid(key):
     return len(key) < 50
 
-# print("Broadcasting self to other replicas")
 views = VIEW.split(",")
 for view in views:
     if view != SOCKET_ADDRESS:
-        # print(f"Sending PUT request to {view}")
         try:
             requests.put(f"http://{view}/view", json={"socket-address": SOCKET_ADDRESS}, timeout=0.2)
         except requests.exceptions.ConnectionError:
-            # print("Connection error")
             pass
         else:
-            # print("PUT request successful")
             sa_store[view] = True
             r = requests.get(f"http://{view}/kvs", json={"socket-address": SOCKET_ADDRESS})
             kv_store.update(r.json()["recovery_data"])
@@ -129,7 +124,6 @@ def handle_key(key):
             value = data["value"]
 
         except (TypeError, KeyError):
-            # print("Exception caught: Either TypeError or KeyError")
             return jsonify({"error": "PUT request does not specify a value"}), 400
 
         causal_metadata = data.get('causal-metadata')
@@ -196,10 +190,6 @@ def handle_key(key):
         if causal_metadata:
             if compare_vector_clock(causal_metadata) == 503:
                 return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
-            
-            #compare = [x > y for x, y in zip(causal_metadata, vector_clock)]
-            #if any(compare):
-            #    return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
 
         # If the key <key> exists in the store, then return the mapped value in the response.
         # – Response code is 200 (Ok).
@@ -249,7 +239,6 @@ def handle_key(key):
             temp_sa_store = sa_store.copy()
             
             for replica in temp_sa_store:
-                # broadcast(key, None, 'DELETE')
                 try: 
                     url = f"http://{replica}/kvs/{key}"
                     requests.delete(url, json={"value": None, "causal-metadata": vector_clock, "broadcasted": "true"}, timeout=0.5)
@@ -257,7 +246,6 @@ def handle_key(key):
                     url = f"http://{SOCKET_ADDRESS}/view"
                     requests.delete(url, json={"socket-address": replica})
                     pass
-                    # return jsonify({"error": "Causal dependenies not satisfied; try again later"}), 503
                 return jsonify({"result": "deleted", "causal-metadata": vector_clock, "broadcasted": "true"}), 200
         # If the key <key> does not exist in the store, then return an error.
         # – Response code is 404 (Not Found).
@@ -272,7 +260,7 @@ def get_key_list():
     # – Response code is 200 (Ok).
     # – Response body is JSON {"key1": "value1", "key2": "value2", ...}.
     data = request.get_json()
-    replica = data['socket-address']  # Remove unnecessary conversion to string
+    replica = data['socket-address']
 
     # Synchronize the vector clock
     if replica == "10.10.0.2:8090":
