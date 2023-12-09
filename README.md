@@ -30,7 +30,7 @@ The mechanism we use is very simple. If a replica goes down, the only reason the
 of a change in the key/value store, so in the event of a broadcast, they will know that the replica went down to then remove it from their 
 view. The way that our system tracks causal dependencies is through a vector clock. When an event happens inside of the replica such a put 
 or delete, then the vector clock for that replica is incremented. The vector clock is checked for correctness before and after the update 
-of the vector clock to account for special circumstances. Durring a broadcast of a change the vector clock is send along with the data and 
+of the vector clock to account for special circumstances. During a broadcast of a change the vector clock is send along with the data and 
 the other replicas then compare their clock with the recieved clock. In general if the clock received is greater that the clock that the 
 replica has, then the causal dependencies have not been satisfied. To fix quickly, you can shut down the replica and start it back up again. 
 The replica then should be back up-to-date with the most updated replica.
