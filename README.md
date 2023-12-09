@@ -15,7 +15,7 @@ Citations
 
 Team Contributions
 ==================
-* Jun Hayashida - Contributed to the design and implementation of vector clock operation to ensure maintaining eventual consistency across the distribued system. Involved in testing the code to identify and rectify errors, ensuring the system;s reliablility and correctness. Played a role in enhancing the readability and efficiency of the code, making it more maintainable and performant.
+* Jun Hayashida - Contributed to the design and implementation of vector clock operation to ensure maintaining eventual consistency across the distribued system. Involved in testing the code to identify and rectify errors, ensuring the system's reliablility and correctness. Played a role in enhancing the readability and efficiency of the code, making it more maintainable and performant.
 * Justin Morales - Designed the key/value store routes and how they function, designed the broadcasting mechanism we are using, designed
  the vector clock functionality,designed the view routes and their funstionality, designed the mechanism of how the replicas discover
  eachother in a system, designed the mechanism that checks if a replica is out of date, designed a mechanism for replicas to discover
