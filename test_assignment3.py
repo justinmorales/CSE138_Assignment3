@@ -124,7 +124,9 @@ class TestHW3(unittest.TestCase):
     def setUp(self):
         print("== Running replicas..")
         runReplica(alice, all_replicas)
+        sleep(1)
         runReplica(bob,   all_replicas)
+        sleep(1)
         runReplica(carol, all_replicas)
         sleep(3)
 
