@@ -26,6 +26,20 @@ def update_vector_clock(v):
         vector_clock[1] = max(vector_clock[1], v[1])
         vector_clock[2] = max(vector_clock[2], v[2])
 
+# A function that compares the new vector clock sent with the message against the existing vector clock
+def compare_vector_clock(v):
+    serv = 0
+    if SOCKET_ADDRESS == "10.10.0.2:8090":
+        serv = 0
+    elif SOCKET_ADDRESS == "10.10.0.3:8090":
+        serv = 1
+    elif SOCKET_ADDRESS == "10.10.0.4:8090":
+        serv = 2
+    for i in range(0,3):
+        if vector_clock[serv] < v[i] and serv != i:
+            return 1
+    return 0
+
 # Create a function to check if the length of the key <key> is more than 50 characters
 def is_key_valid(key):
     return len(key) < 50
@@ -120,6 +134,8 @@ def handle_key(key):
         causal_metadata = data.get('causal-metadata')
         if causal_metadata != None:
             update_vector_clock(causal_metadata)
+            if compare_vector_clock(causal_metadata) == 1:
+                return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
         inc_vector_clock()
         result = "created" if key not in kv_store else "replaced"
         kv_store[key] = value
@@ -170,9 +186,11 @@ def handle_key(key):
         data = request.get_json()
         causal_metadata = data.get('causal-metadata')
         if causal_metadata:
-            update_vector_clock(causal_metadata)
+            #update_vector_clock(causal_metadata)
+            if compare_vector_clock(causal_metadata) == 1:
+                return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
 
-        inc_vector_clock()
+        #inc_vector_clock()
         # If the key <key> exists in the store, then return the mapped value in the response.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "found", "value": "<value>", "causal-metadata": <V'>}
@@ -198,12 +216,15 @@ def handle_key(key):
         causal_metadata = data.get('causal-metadata')
         if causal_metadata:
             update_vector_clock(causal_metadata)
-        inc_vector_clock()
+            if compare_vector_clock(causal_metadata) == 1:
+                return jsonify({"error": "Causal dependencies not satisfied; try again later"}), 503
+        #inc_vector_clock()
         # If the key <key> exists in the store, then remove it.
         # – Response code is 200 (Ok).
         # – Response body is JSON {"result": "deleted", "causal-metadata": <V'>}.
         # ∗ The <V'> indicates a causal dependency on <V> and this DELETE
         if key in kv_store:
+            inc_vector_clock()
             del kv_store[key]
             if "broadcasted" in data:
                 return jsonify({"result": "deleted", "causal-metadata": vector_clock, "broadcasted": "true"}), 200
